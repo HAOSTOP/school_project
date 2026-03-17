@@ -13,6 +13,8 @@ import subprocess
 import wmi
 import os
 import threading
+# Уведомления
+from plyer import notification
 
 # Файл куда пишется мониторинг
 log_file = "start_times.txt"
@@ -216,18 +218,33 @@ class SimpleMonitor:
         if cpu > self.config.get('CPU_Usage', 90):
             warning = f"ПРЕДУПРЕЖДЕНИЕ: CPU превышен! ({cpu:.1f}%)"
             print(warning)
+            notification.notify(
+                title="ПРЕДУПРЕЖДЕНИЕ!!!",
+                message="CPU превышен",
+                timeout=3
+            )
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(f"{warning}\n")
 
         if ram > self.config.get('RAM_Usage', 85):
             warning = f"ПРЕДУПРЕЖДЕНИЕ: RAM превышен! ({ram:.1f}%)"
             print(warning)
+            notification.notify(
+                title="ПРЕДУПРЕЖДЕНИЕ!!!",
+                message="RAM превышен",
+                timeout=3
+            )
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(f"{warning}\n")
 
         if vidiokart_temp is not None and vidiokart_temp > self.config.get('GPU_Temp', 85):
-            warning = f"ПРЕДУПРЕЖДЕНИЕ: Температура GPU высокая! ({vidiokart_temp}°C)"
+            warning = f"ПРЕДУПРЕЖДЕНИЕ: Температура видеокарты высокая! ({vidiokart_temp}°C)"
             print(warning)
+            notification.notify(
+                title="ПРЕДУПРЕЖДЕНИЕ!!!",
+                message="Температура видеокарты превышена",
+                timeout=3
+            )
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(f"{warning}\n")
 
@@ -273,7 +290,7 @@ def wait_for_enter(monitor):
 
 # Запуск
 if __name__ == "__main__":
-    config = {"CPU_Usage": 90.0, "RAM_Usage": 85.0}
+    config = {"CPU_Usage": 90.0, "RAM_Usage": 90.0, "GPU_Temp": 85.0}
     with open("simple_config.json", "w") as f:
         json.dump(config, f)
 
