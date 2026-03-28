@@ -3,29 +3,62 @@ import warnings
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
-from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetTemperature, NVML_TEMPERATURE_GPU
+try:
+    from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetTemperature, NVML_TEMPERATURE_GPU
+
+    NVML_AVAILABLE = True
+except ImportError:
+    NVML_AVAILABLE = False
+    print("pynvml не установлен, мониторинг GPU будет ограничен")
+
 from datetime import datetime
 import psutil
 import json
 import logging
 import time
 import subprocess
-import wmi
 import os
 import threading
-# Уведомления
 from plyer import notification
 
 # Файл куда пишется мониторинг
 log_file = "start_times.txt"
 
+
+def safe_subprocess_run(command):
+    """Безопасный запуск subprocess с обработкой ошибок кодировки"""
+    try:
+        # Пробуем разные кодировки
+        encodings = ['cp866', 'cp1251', 'utf-8']
+        for encoding in encodings:
+            try:
+                result = subprocess.run(
+                    command,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    encoding=encoding
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout
+            except UnicodeDecodeError:
+                continue
+        return ""
+    except Exception as e:
+        print(f"Ошибка выполнения команды: {e}")
+        return ""
+
+
 # Когда запустил
-with open(log_file, "w", encoding="utf-8") as f:
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    f.write(f"%%% МОНИТОРИНГ СИСТЕМЫ %%%\n")
-    f.write("=" * 40 + "\n")
-    f.write(f"Скрипт запущен: {current_time}\n")
-    f.write("=" * 40 + "\n\n")
+try:
+    with open(log_file, "w", encoding="utf-8") as f:
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        f.write(f"%%% МОНИТОРИНГ СИСТЕМЫ %%%\n")
+        f.write("=" * 40 + "\n")
+        f.write(f"Скрипт запущен: {current_time}\n")
+        f.write("=" * 40 + "\n\n")
+except Exception as e:
+    print(f"Ошибка создания лог-файла: {e}")
 
 start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 print(f"\nМониторинг начат в {start_time}")
@@ -40,20 +73,15 @@ def check_ram_health_windows():
     print("=" * 110)
 
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866')
-        output = result.stdout.rstrip('\n').rstrip('\r')
+        output = safe_subprocess_run(cmd)
         if output.strip():
             print(output.strip())
         else:
             print("Нет информации об оперативной памяти")
-        print("=" * 110)
     except Exception as e:
-        print(f"Ошибка выполнения команды: {e}")
+        print(f"Ошибка получения информации о RAM: {e}")
+    finally:
         print("=" * 110)
-
-
-check_ram_health_windows()
-print("")
 
 
 # Диски:
@@ -64,44 +92,38 @@ def check_disk_health_windows():
     print("=" * 110)
 
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866')
-        output = result.stdout.rstrip('\n').rstrip('\r')  # убрать пустые строки
+        output = safe_subprocess_run(cmd)
         if output.strip():
             print(output.strip())
         else:
             print("Нет информации о физических дисках")
-        print("=" * 110)
     except Exception as e:
-        print(f"Ошибка выполнения команды: {e}")
+        print(f"Ошибка получения информации о дисках: {e}")
+    finally:
         print("=" * 110)
-
-
-check_disk_health_windows()
-print("")
 
 
 # Процессор:
 def check_cpu_info_windows():
-    cmd = 'powershell "Get-WmiObject Win32_Processor | Select-Object @{Name=\'Название\';Expression={$_.Name}}, @{Name=\'Количество ядер\';Expression={$_.NumberOfCores}}, @{Name=\'Количество потоков\';Expression={$_.NumberOfLogicalProcessors}}, @{Name=\'Макс. частота (ГГц)\';Expression={[math]::Round($_.MaxClockSpeed/1000, 2)}}, @{Name=\'Тек. частота (ГГц)\';Expression={[math]::Round($_.CurrentClockSpeed/1000, 2)}} | Format-List"'
+    cmd = 'powershell "Get-WmiObject Win32_Processor | Select-Object @{Name=\'Название\';Expression={$_.Name}}, @{Name=\'Количество ядер\';Expression={$_.NumberOfCores}}, @{Name=\'Количество потоков\';Expression={$_.NumberOfLogicalProcessors}}, @{Name=\'Макс. частота (ГГц)\';Expression={[math]::Round($_.MaxClockSpeed/1000, 2)}}, @{Name=\'Тек. частота (ГГц)\';Expression={[math]::Round($_.CurrentClockSpeed/1000, 2)}} | Format-List"'''
 
     print("\nПРОЦЕССОР:")
     print("=" * 110)
 
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding='cp866')
-        output = result.stdout.strip()
-        if output:
-            print(output)
+        output = safe_subprocess_run(cmd)
+        if output.strip():
+            # Убираем лишние пустые строки в начале и конце #
+            lines = output.strip().split('\n')
+            # Фильтруем строки, убираем полностью пустые строки #
+            filtered_lines = [line for line in lines if line.strip() != '']
+            print('\n'.join(filtered_lines))
         else:
             print("Нет информации о процессоре")
-        print("=" * 110)
     except Exception as e:
-        print(f"Ошибка выполнения команды: {e}")
+        print(f"Ошибка получения информации о процессоре: {e}")
+    finally:
         print("=" * 110)
-
-
-check_cpu_info_windows()
-print("")
 
 
 # Видеокарты:
@@ -110,6 +132,7 @@ def check_gpu_info_wmi():
     print("=" * 110)
 
     try:
+        import wmi
         c = wmi.WMI()
         video_controllers = c.Win32_VideoController()
 
@@ -120,135 +143,185 @@ def check_gpu_info_wmi():
         output_lines = []
         for i, gpu in enumerate(video_controllers, 1):
             gpu_info = [f"[Видеокарта #{i}]"]
-            gpu_info.append(f"Название: {gpu.Name}")
-            gpu_info.append(f"Производитель: {gpu.AdapterCompatibility}")
 
-            if gpu.AdapterRAM:
-                memory_mb = round(int(gpu.AdapterRAM) / (1024 * 1024), 2)
-                gpu_info.append(f"Видеопамять: {memory_mb} МБ")
+            # Безопасное получение атрибутов
+            if hasattr(gpu, 'Name') and gpu.Name:
+                gpu_info.append(f"Название: {gpu.Name}")
 
-            if gpu.CurrentHorizontalResolution and gpu.CurrentVerticalResolution:
-                gpu_info.append(
-                    f"Текущее разрешение: {gpu.CurrentHorizontalResolution}x{gpu.CurrentVerticalResolution}")
+            if hasattr(gpu, 'AdapterCompatibility') and gpu.AdapterCompatibility:
+                gpu_info.append(f"Производитель: {gpu.AdapterCompatibility}")
 
-            if gpu.DriverVersion:
-                gpu_info.append(f"Версия драйвера: {gpu.DriverVersion}")
+            if hasattr(gpu, 'AdapterRAM') and gpu.AdapterRAM:
+                try:
+                    memory_mb = round(int(gpu.AdapterRAM) / (1024 * 1024), 2)
+                    gpu_info.append(f"Видеопамять: {memory_mb} МБ")
+                except:
+                    pass
 
-            if gpu.DriverDate:
-                gpu_info.append(f"Дата драйвера: {gpu.DriverDate}")
+            if hasattr(gpu, 'CurrentHorizontalResolution') and hasattr(gpu, 'CurrentVerticalResolution'):
+                if gpu.CurrentHorizontalResolution and gpu.CurrentVerticalResolution:
+                    gpu_info.append(
+                        f"Текущее разрешение: {gpu.CurrentHorizontalResolution}x{gpu.CurrentVerticalResolution}")
 
             output_lines.append("\n".join(gpu_info))
 
-        print("\n".join(output_lines))
-        print("=" * 110)
+        if output_lines:
+            print("\n".join(output_lines))
+        else:
+            print("Не удалось получить информацию о видеокартах")
 
+    except ImportError:
+        print("Модуль wmi не установлен. Установите: pip install wmi")
     except Exception as e:
-        print(f"Ошибка получения информации: {e}")
+        print(f"Ошибка получения информации о видеокарте: {e}")
+    finally:
         print("=" * 110)
 
 
-check_gpu_info_wmi()
-print("")
+# Вызов функций с обработкой ошибок
+try:
+    check_ram_health_windows()
+    print("")
+    check_disk_health_windows()
+    print("")
+    check_cpu_info_windows()
+    print("")
+    check_gpu_info_wmi()
+    print("")
+except Exception as e:
+    print(f"Общая ошибка при сборе информации: {e}")
 
 
 class SimpleMonitor:
     def __init__(self, config_file):
-        with open(config_file, 'r') as f:
-            self.config = json.load(f)
-
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        self.logger = logging.getLogger()
-        self.log_file = log_file  # Путь к файлу
-
-        self.running = True  # Флаг для контроля работы мониторинга
-        self.stopped_already = False  # Флаг чтобы stop() не выполнялся дважды
-
-        # Есть ли видюха
+        # Загрузка конфигурации
         try:
-            nvmlInit()
-            self.has_vidiokart = True
-            self.vidiokart_handle = nvmlDeviceGetHandleByIndex(0)
-            print("Видеокарта обнаружена")
-            print("")
+            with open(config_file, 'r') as f:
+                self.config = json.load(f)
+        except Exception as e:
+            print(f"ОШИБКА: Не удалось загрузить конфигурационный файл {config_file}")
+            print(f"Ошибка: {e}")
+            print("Программа не может продолжить работу без конфигурационного файла.")
+            sys.exit(1)
 
-        except Exception as zzzzz:
-            print(f"Видеокарта не обнаружена или ошибка NVML: {zzzzz}")
-            print("")
-            self.has_vidiokart = False
+        # Проверка наличия всех необходимых параметров в конфиге
+        required_params = ['CPU_Usage', 'RAM_Usage', 'GPU_Temp']
+        for param in required_params:
+            if param not in self.config:
+                print(f"ОШИБКА: В конфигурационном файле отсутствует параметр {param}")
+                sys.exit(1)
+
+        # Настройка логирования
+        try:
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            self.logger = logging.getLogger()
+        except Exception as e:
+            print(f"Ошибка настройки логирования: {e}")
+            self.logger = None
+
+        self.log_file = log_file
+        self.running = True
+        self.stopped_already = False
+
+        # Проверка наличия видеокарты через NVML
+        self.has_vidiokart = False
+        self.vidiokart_handle = None
+
+        if NVML_AVAILABLE:
+            try:
+                nvmlInit()
+                self.vidiokart_handle = nvmlDeviceGetHandleByIndex(0)
+                self.has_vidiokart = True
+                print("Видеокарта обнаружена через NVML")
+            except Exception as e:
+                print(f"Видеокарта не обнаружена или ошибка NVML: {e}")
+        else:
+            print("NVML не доступен, температура GPU не будет отслеживаться")
+
+        # Вывод загруженных пороговых значений
+        print(f"\nЗагружены пороговые значения из конфига:")
+        print(f"  CPU: {self.config['CPU_Usage']}%")
+        print(f"  RAM: {self.config['RAM_Usage']}%")
+        print(f"  GPU Temperature: {self.config['GPU_Temp']}°C")
+        print("")
 
     def get_gpu_temp_vidiokart(self):
-        # Получение температуры видеокарты
-        if not self.has_vidiokart:
+        if not self.has_vidiokart or not self.vidiokart_handle:
             return None
 
         try:
             temp_vidiokart = nvmlDeviceGetTemperature(self.vidiokart_handle, NVML_TEMPERATURE_GPU)
             return temp_vidiokart
-        except Exception as zzz:
-            print(f"Ошибка при получении температуры видеокарты: {zzz}")
+        except Exception as e:
+            print(f"Ошибка при получении температуры видеокарты: {e}")
             return None
 
     def check(self):
         if not self.running:
             return False
 
-        cpu = psutil.cpu_percent(interval=1)
-        ram = psutil.virtual_memory().percent
-        vidiokart_temp = self.get_gpu_temp_vidiokart()
+        try:
+            cpu = psutil.cpu_percent(interval=1)
+            ram = psutil.virtual_memory().percent
+            vidiokart_temp = self.get_gpu_temp_vidiokart()
 
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Вывод в питон
-        if vidiokart_temp is not None:
-            output_str = f"[{current_time}] CPU: {cpu:.1f}%, RAM: {ram:.1f}%, TEMP_VIDIOKART: {vidiokart_temp}°C"
-        else:
-            output_str = f"[{current_time}] CPU: {cpu:.1f}%, RAM: {ram:.1f}%, TEMP_VIDIOKART: Не найдена видеокарта!"
+            # Вывод в консоль
+            if vidiokart_temp is not None:
+                output_str = f"[{current_time}] CPU: {cpu:.1f}%, RAM: {ram:.1f}%, TEMP_VIDIOKART: {vidiokart_temp}°C"
+            else:
+                output_str = f"[{current_time}] CPU: {cpu:.1f}%, RAM: {ram:.1f}%, TEMP_VIDIOKART: Не доступна"
 
-        print(output_str)
+            print(output_str)
 
-        # Запись в файл
-        with open(self.log_file, "a", encoding="utf-8") as f:
-            f.write(output_str + "\n")
+            # Запись в файл
+            try:
+                with open(self.log_file, "a", encoding="utf-8") as f:
+                    f.write(output_str + "\n")
+            except Exception as e:
+                print(f"Ошибка записи в лог: {e}")
 
-        # Мониторинг до макс
-        if cpu > self.config.get('CPU_Usage', 90):
-            warning = f"ПРЕДУПРЕЖДЕНИЕ: CPU превышен! ({cpu:.1f}%)"
-            print(warning)
+            # Проверка превышения порогов (значения берутся ТОЛЬКО из конфига)
+            if cpu > self.config['CPU_Usage']:
+                self.send_warning("CPU превышен!", f"CPU: {cpu:.1f}% (порог: {self.config['CPU_Usage']}%)")
+
+            if ram > self.config['RAM_Usage']:
+                self.send_warning("RAM превышен!", f"RAM: {ram:.1f}% (порог: {self.config['RAM_Usage']}%)")
+
+            if vidiokart_temp is not None and vidiokart_temp > self.config['GPU_Temp']:
+                self.send_warning("Температура видеокарты высокая!",
+                                  f"Температура: {vidiokart_temp}°C (порог: {self.config['GPU_Temp']}°C)")
+
+            return True
+
+        except Exception as e:
+            print(f"Ошибка в цикле мониторинга: {e}")
+            return True  # Продолжаем работу даже при ошибке
+
+    def send_warning(self, title, message):
+        # Отправка предупреждения #
+        warning = f"ПРЕДУПРЕЖДЕНИЕ: {title} ({message})"
+        print(warning)
+
+        try:
             notification.notify(
                 title="ПРЕДУПРЕЖДЕНИЕ!!!",
-                message="CPU превышен",
+                message=title,
                 timeout=3
             )
+        except Exception as e:
+            print(f"Ошибка отправки уведомления: {e}")
+
+        try:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(f"{warning}\n")
-
-        if ram > self.config.get('RAM_Usage', 85):
-            warning = f"ПРЕДУПРЕЖДЕНИЕ: RAM превышен! ({ram:.1f}%)"
-            print(warning)
-            notification.notify(
-                title="ПРЕДУПРЕЖДЕНИЕ!!!",
-                message="RAM превышен",
-                timeout=3
-            )
-            with open(self.log_file, "a", encoding="utf-8") as f:
-                f.write(f"{warning}\n")
-
-        if vidiokart_temp is not None and vidiokart_temp > self.config.get('GPU_Temp', 85):
-            warning = f"ПРЕДУПРЕЖДЕНИЕ: Температура видеокарты высокая! ({vidiokart_temp}°C)"
-            print(warning)
-            notification.notify(
-                title="ПРЕДУПРЕЖДЕНИЕ!!!",
-                message="Температура видеокарты превышена",
-                timeout=3
-            )
-            with open(self.log_file, "a", encoding="utf-8") as f:
-                f.write(f"{warning}\n")
-
-        return True
+        except Exception as e:
+            pass
 
     def run(self):
         try:
@@ -258,11 +331,12 @@ class SimpleMonitor:
                 time.sleep(1)
         except KeyboardInterrupt:
             pass
+        except Exception as e:
+            print(f"Критическая ошибка в мониторинге: {e}")
         finally:
             self.stop()
 
     def stop(self):
-        # Защита от повторного вызова
         if self.stopped_already:
             return
 
@@ -272,46 +346,59 @@ class SimpleMonitor:
         end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         print(f"\nМониторинг остановлен в {end_time}")
 
-        # Время завершения в файле
-        with open(self.log_file, "a", encoding="utf-8") as f:
-            f.write("\n" + "=" * 40 + "\n")
-            f.write(f"Мониторинг остановлен: {end_time}\n")
-            f.write("=" * 40 + "\n")
+        try:
+            with open(self.log_file, "a", encoding="utf-8") as f:
+                f.write("\n" + "=" * 40 + "\n")
+                f.write(f"Мониторинг остановлен: {end_time}\n")
+                f.write("=" * 40 + "\n")
+        except Exception as e:
+            pass
 
 
 def wait_for_enter(monitor):
-    # Функция для ожидания нажатия Enter #
     print("\n" + "=" * 60)
     print("Мониторинг запущен. Нажмите Enter для остановки...")
     print("=" * 60 + "\n")
-    input()  # Ждем нажатия Enter
+    try:
+        input()
+    except:
+        pass
     monitor.stop()
 
 
 # Запуск
 if __name__ == "__main__":
-    config = {"CPU_Usage": 90.0, "RAM_Usage": 90.0, "GPU_Temp": 85.0}
-    with open("simple_config.json", "w") as f:
-        json.dump(config, f)
+    config_file = "simple_config.json"
 
-    monitor = SimpleMonitor("simple_config.json")
+    # Проверяем существование конфиг-файла
+    if not os.path.exists(config_file):
+        print(f"ОШИБКА: Файл конфигурации {config_file} не найден!")
+        print("Создайте файл simple_config.json, например, со следующим содержимым:")
+        print('{"CPU_Usage": 90.0, "RAM_Usage": 85.0, "GPU_Temp": 80.0}')
+        print("\nНажмите Enter для выхода...")
+        try:
+            input()
+        except:
+            pass
+        sys.exit(1)
 
-    # Запускаем ожидание Enter
-    enter_thread = threading.Thread(target=wait_for_enter, args=(monitor,), daemon=True)
-    enter_thread.start()
+    try:
+        monitor = SimpleMonitor(config_file)
 
-    # Запускаем основной мониторинг
-    monitor.run()
+        # Запускаем ожидание Enter
+        enter_thread = threading.Thread(target=wait_for_enter, args=(monitor,), daemon=True)
+        enter_thread.start()
 
-    # Удаляем конфиг файл
-    os.remove("simple_config.json")
+        # Запускаем основной мониторинг
+        monitor.run()
 
-    # Ждем завершения потока с Enter (на всякий случай)
-    enter_thread.join(timeout=1)
-
-    # Ожидание перед выходом из EXE
-    print("\n" + "=" * 60)
-    print("Программа завершена. Нажмите Enter для выхода...")
-    input()
-
-
+    except Exception as e:
+        print(f"Критическая ошибка: {e}")
+    finally:
+        # Ожидание перед выходом
+        print("\n" + "=" * 60)
+        print("Программа завершена. Нажмите Enter для выхода...")
+        try:
+            input()
+        except:
+            pass
