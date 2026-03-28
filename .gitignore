@@ -23,3 +23,8 @@ __pycache__/
 .env
 *.key
 *.pem
+
+# файлы сборки
+SystemMonitor.spec
+build/
+dist/
