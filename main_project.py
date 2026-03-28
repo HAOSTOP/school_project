@@ -1,5 +1,15 @@
 import sys
 import warnings
+import psutil
+import json
+import logging
+import time
+import subprocess
+import os
+import threading
+
+from datetime import datetime
+from plyer import notification
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 
@@ -10,16 +20,6 @@ try:
 except ImportError:
     NVML_AVAILABLE = False
     print("pynvml не установлен, мониторинг GPU будет ограничен")
-
-from datetime import datetime
-import psutil
-import json
-import logging
-import time
-import subprocess
-import os
-import threading
-from plyer import notification
 
 # Файл куда пишется мониторинг
 log_file = "start_times.txt"
